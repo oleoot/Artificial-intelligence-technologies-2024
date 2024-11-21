@@ -1,21 +1,21 @@
 import telebot
 from telebot import types
 import random
-
+# Token для привʼязки до телеграм бота
 TOKEN = '7923883606:AAH9We_31SgEgKfavvbyJ9CgO6gYYt8u1a0'
 bot = telebot.TeleBot(TOKEN)
-
+# Локальна база даних для збереження записів на ремонт
 order_status_db = {
     # "12345": "Ремонт завершено. Пристрій готовий до видачі.",
     # "67890": "Пристрій у процесі ремонту. Звертайтесь за оновленням через 2 дні.",
     # "54321": "Очікування запчастин. Ми зв'яжемось, як тільки ремонт буде відновлено."
 }
-
+# Обробник команди /start, яка викликає головне меню
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Категорії послуг", "Запис на ремонт", "Статус ремонту", "Про нас", "Контакти та розташування")
-    bot.send_photo(message.chat.id, photo=open('./photos/1.jpg', 'rb'))
+    bot.send_photo(message.chat.id, photo=open('PR1/photos/1.jpg', 'rb'))
     welcome_text = (
         "Вітаємо вас у нашій майстерні з ремонту телефонів! 📱\n\n"
         "Ми спеціалізуємося на швидкому та якісному ремонті телефонів різних брендів і моделей. "
@@ -30,27 +30,27 @@ def start(message):
     )
 
     bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
+# Обробник команди для запису на ремонт
 @bot.message_handler(commands=['book'])
 def book(message):
     request_user_info(message)
-
+# Обробник команди для перевірки статусу ремонту
 @bot.message_handler(commands=['status'])
 def status(message):
     get_status(message)
-
+# Обробник команди для перегляду категорій послуг
 @bot.message_handler(commands=['categories'])
 def categories(message):
     get_categories(message)
-
+# Обробник команди для інформації про майстерню
 @bot.message_handler(commands=['about'])
 def about(message):
     get_about(message)
-
+# Обробник команди для контактної інформації
 @bot.message_handler(commands=['contacts'])
 def contacts(message):
     get_contacts(message)
-
+# Обробник текстових повідомлень кнопок на головному екрані
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     if message.text == "Про нас":
@@ -130,6 +130,7 @@ def handle_text(message):
         main_menu(message)
 
     elif message.text.isdigit():
+        # Обробка введення номера замовлення
         order_info = order_status_db.get(message.text)
         if order_info:
             response = f"Статус вашого замовлення: {order_info['status']}"
@@ -139,6 +140,7 @@ def handle_text(message):
         bot.send_message(message.chat.id, response)
     else:
         bot.send_message(message.chat.id, "Оберіть розділ з меню.")
+# Повернення до головного меню
 def main_menu(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Категорії послуг", "Запис на ремонт", "Статус ремонту", "Про нас", "Контакти та розташування")
@@ -147,6 +149,7 @@ def main_menu(message):
         "Повертаємось до головного меню. Оберіть розділ для продовження:",
         reply_markup=markup
     )
+# Відображення інформації по вибраному типу ремонту
 @bot.callback_query_handler(func=lambda call: call.data in ['diagnostics', 'screen_replacement', 'battery_replacement', 'charging_port_repair', 'other_issue'])
 def category_info(call):
     if call.data == 'diagnostics':
@@ -169,11 +172,11 @@ def category_info(call):
         reply_markup=markup,
         parse_mode="Markdown"
     )
-
+# Обробка вибору категорії
 @bot.callback_query_handler(func=lambda call: call.data.startswith('register_'))
 def register(call):
     request_user_info(call.message)
-
+# Запит даних користувача для запису
 def request_user_info(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Назад")
@@ -183,7 +186,7 @@ def request_user_info(message):
         reply_markup=markup
     )
     bot.register_next_step_handler(message, process_order)
-
+# Перевірка статусу замовлення
 def get_status(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Назад")
@@ -192,11 +195,11 @@ def get_status(message):
         "Введіть номер вашого замовлення для перевірки статусу ремонту:",
         reply_markup=markup
     )
-
+# Інформація про майстерню
 def get_about(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Назад")
-    bot.send_photo(message.chat.id, photo=open('./photos/2.png', 'rb'))
+    bot.send_photo(message.chat.id, photo=open('PR1/photos/2.png', 'rb'))
     bot.send_message(
         message.chat.id,
         "Ми - професійна майстерня з ремонту телефонів з багаторічним досвідом роботи. "
@@ -204,7 +207,7 @@ def get_about(message):
         "Наша мета - зробити ваш пристрій знову як новий!",
         reply_markup=markup
     )
-
+# Контактна інформація
 def get_contacts(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("Назад")
@@ -214,7 +217,7 @@ def get_contacts(message):
         "Графік роботи: Пн-Пт з 9:00 до 18:00.\nТелефон для довідок: +380123456789",
         reply_markup=markup
     )
-
+# Всі категорії ремонту
 def get_categories(message):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("Діагностика", callback_data='diagnostics'))
@@ -236,7 +239,7 @@ def get_categories(message):
         "Для повернення натисніть кнопку 'Назад'",
         reply_markup=back_markup
     )
-
+# Обробка замовлення
 def process_order(message):
     if message.text == "Назад":
         main_menu(message)
@@ -267,6 +270,7 @@ def process_order(message):
         message.chat.id,
         f"Дякуємо за запис! Ваш номер замовлення: {order_number}. Ви можете перевірити статус у розділі 'Статус ремонту'."
     )
+# Запис даних по ремонту в локальну базу даних
 @bot.message_handler(content_types=['text'])
 def handle_order_status_request(message):
     if message.text.isdigit():
@@ -282,4 +286,5 @@ def handle_order_status_request(message):
         else:
             response = "Замовлення з таким номером не знайдено."
         bot.send_message(message.chat.id, response)
+# Активація боту
 bot.polling(none_stop=True)

@@ -1,15 +1,41 @@
 import telebot
 from telebot import types
 import random
+import sqlite3
 # Token для привʼязки до телеграм бота
 TOKEN = '7923883606:AAH9We_31SgEgKfavvbyJ9CgO6gYYt8u1a0'
 bot = telebot.TeleBot(TOKEN)
-# Локальна база даних для збереження записів на ремонт
-order_status_db = {
-    # "12345": "Ремонт завершено. Пристрій готовий до видачі.",
-    # "67890": "Пристрій у процесі ремонту. Звертайтесь за оновленням через 2 дні.",
-    # "54321": "Очікування запчастин. Ми зв'яжемось, як тільки ремонт буде відновлено."
-}
+
+# Ініціалізація SQLite
+conn = sqlite3.connect('PR1/repair_orders.db', check_same_thread=False)
+cursor = conn.cursor()
+
+# Створення таблиці для збереження даних, якщо такої ще немає
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS orders (
+    order_id TEXT PRIMARY KEY,
+    name TEXT,
+    phone TEXT,
+    phone_model TEXT,
+    problem_description TEXT,
+    status TEXT
+)
+''')
+conn.commit()
+
+# Функція для додавання запису в базу даних
+def add_order(order_id, name, phone, phone_model, problem_description, status):
+    cursor.execute('''
+    INSERT INTO orders (order_id, name, phone, phone_model, problem_description, status)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ''', (order_id, name, phone, phone_model, problem_description, status))
+    conn.commit()
+
+# Функція для отримання статусу замовлення
+def get_order_status(order_id):
+    cursor.execute('SELECT * FROM orders WHERE order_id = ?', (order_id,))
+    return cursor.fetchone()
+
 # Обробник команди /start, яка викликає головне меню
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -131,9 +157,9 @@ def handle_text(message):
 
     elif message.text.isdigit():
         # Обробка введення номера замовлення
-        order_info = order_status_db.get(message.text)
+        order_info = get_order_status(message.text)
         if order_info:
-            response = f"Статус вашого замовлення: {order_info['status']}"
+            response = f"Статус вашого замовлення: {order_info[5]}"
         else:
             response = "Замовлення з таким номером не знайдено. Перевірте номер і спробуйте ще раз."
 
@@ -256,35 +282,12 @@ def process_order(message):
     phone = user_data[1]
     phone_model = user_data[2]
     problem_description = user_data[3]
-
-    order_number = str(random.randint(10000, 99999))
-    order_status_db[order_number] = {
-        "status": "Замовлення прийнято на обробку. Очікуйте подальших оновлень.",
-        "name": name,
-        "phone": phone,
-        "phone_model": phone_model,
-        "problem_description": problem_description
-    }
-
+    status = "Замовлення прийнято на обробку. Очікуйте подальших оновлень."
+    order_id = str(random.randint(10000, 99999))
+    add_order(order_id, name, phone, phone_model, problem_description, status)
     bot.send_message(
         message.chat.id,
-        f"Дякуємо за запис! Ваш номер замовлення: {order_number}. Ви можете перевірити статус у розділі 'Статус ремонту'."
+        f"Дякуємо за запис! Ваш номер замовлення: {order_id}. Ви можете перевірити статус у розділі 'Статус ремонту'."
     )
-# Запис даних по ремонту в локальну базу даних
-@bot.message_handler(content_types=['text'])
-def handle_order_status_request(message):
-    if message.text.isdigit():
-        order_info = order_status_db.get(message.text)
-        if order_info:
-            response = (
-                f"Статус вашого замовлення: {order_info['status']}\n"
-                f"Ім'я: {order_info['name']}\n"
-                f"Телефон: {order_info['phone']}\n"
-                f"Модель телефону: {order_info['phone_model']}\n"
-                f"Опис проблеми: {order_info['problem_description']}"
-            )
-        else:
-            response = "Замовлення з таким номером не знайдено."
-        bot.send_message(message.chat.id, response)
 # Активація боту
 bot.polling(none_stop=True)

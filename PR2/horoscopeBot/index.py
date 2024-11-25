@@ -1,16 +1,14 @@
 import telebot
 from telebot import types
 import requests
+from datetime import datetime
+from deep_translator import GoogleTranslator
 
 # Токен Telegram бота
 TOKEN = '7710722442:AAFr0rW7G6uozZBhIAxduV60do-6_bDqkqM'
 
 # API URL та ключ
-HOROSCOPE_API_URL = "https://best-daily-astrology-and-horoscope-api.p.rapidapi.com/"
-API_HEADERS = {
-    "X-RapidAPI-Key": "724ed999b3mshff5d7606cc7d925p17919ajsnb4754afb0374",
-    "X-RapidAPI-Host": "best-daily-astrology-and-horoscope-api.p.rapidapi.com"
-}
+HOROSCOPE_API_URL = "https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily"
 
 # Ініціалізація бота
 bot = telebot.TeleBot(TOKEN)
@@ -22,18 +20,18 @@ zodiac_signs_uk = [
 ]
 
 zodiac_signs_map = {
-    "Овен": "aries",
-    "Телець": "taurus",
-    "Близнюки": "gemini",
-    "Рак": "cancer",
-    "Лев": "leo",
-    "Діва": "virgo",
-    "Терези": "libra",
-    "Скорпіон": "scorpio",
-    "Стрілець": "sagittarius",
-    "Козоріг": "capricorn",
-    "Водолій": "aquarius",
-    "Риби": "pisces"
+    "Овен": "Aries",
+    "Телець": "Taurus",
+    "Близнюки": "Gemini",
+    "Рак": "Cancer",
+    "Лев": "Leo",
+    "Діва": "Virgo",
+    "Терези": "Libra",
+    "Скорпіон": "Scorpio",
+    "Стрілець": "Sagittarius",
+    "Козоріг": "Capricorn",
+    "Водолій": "Aquarius",
+    "Риби": "Pisces"
 }
 
 # Обробник команди /start
@@ -70,34 +68,64 @@ def handle_text(message):
     if sign_uk in zodiac_signs_map:
         # Отримуємо англійську назву знаку
         sign_en = zodiac_signs_map[sign_uk]
-        horoscope = get_horoscope(sign_en)
-        if horoscope:
-            bot.send_message(
-                message.chat.id,
-                f"Гороскоп для {sign_uk} на сьогодні:\n{horoscope}"
-            )
-        else:
-            bot.send_message(
-                message.chat.id,
-                "На жаль, не вдалося отримати гороскоп. Спробуйте пізніше."
-            )
+
+        # Переходимо до вибору дати
+        bot.send_message(
+            message.chat.id,
+            "Виберіть дату для гороскопу (формат: YYYY-MM-DD), або напишіть 'Сьогодні' для отримання гороскопу на сьогодні."
+        )
+        # Зберігаємо вибраний знак зодіаку для наступного кроку
+        bot.register_next_step_handler(message, lambda m: request_horoscope(m, sign_en, sign_uk))
     else:
         bot.send_message(
             message.chat.id,
             "Будь ласка, оберіть знак зодіаку з меню або введіть його коректно."
         )
 
+# Обробка введеної дати
+def request_horoscope(message, sign_en, sign_uk):
+    date_str = message.text.strip()
+    if date_str.lower() == "сьогодні":
+        date_str = datetime.today().strftime('%Y-%m-%d')
+    else:
+        try:
+            # Перевіряємо, чи правильний формат дати
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            date_str = date_obj.strftime('%Y-%m-%d')
+        except ValueError:
+            bot.send_message(
+                message.chat.id,
+                "Невірний формат дати. Використовуйте формат YYYY-MM-DD."
+            )
+            return
+
+    # Отримуємо гороскоп з API
+    horoscope = get_horoscope(sign_en, date_str)
+    if horoscope:
+        # Перекладаємо гороскоп на українську
+        horoscope_uk = translate_text(horoscope)
+        bot.send_message(
+            message.chat.id,
+            f"Гороскоп для {sign_uk} на {date_str}:\n{horoscope_uk}"
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "На жаль, не вдалося отримати гороскоп. Спробуйте пізніше."
+        )
+
 # Функція для отримання гороскопу через API
-def get_horoscope(sign):
+def get_horoscope(sign, date):
     try:
+        # Формуємо запит до API
         response = requests.get(
             HOROSCOPE_API_URL,
-            headers=API_HEADERS,
-            params={"zodiacSign": sign}
+            params={"sign": sign, "day": date}
         )
         if response.status_code == 200:
             data = response.json()
-            return data.get('horoscope', "Гороскоп недоступний.")
+            # Перевіряємо, чи є гороскоп у відповіді
+            return data.get('horoscope', data['data']['horoscope_data'])
         else:
             print(f"Помилка запиту: {response.status_code}")
             print(f"Деталі: {response.text}")
@@ -105,6 +133,14 @@ def get_horoscope(sign):
     except Exception as e:
         print(f"Помилка отримання гороскопу: {e}")
         return None
-
+# Функція для перекладу тексту
+def translate_text(text):
+    try:
+        # Переклад на українську
+        translated = GoogleTranslator(source='en', target='uk').translate(text)
+        return translated
+    except Exception as e:
+        print(f"Помилка перекладу: {e}")
+        return text
 # Запуск бота
 bot.polling(none_stop=True)

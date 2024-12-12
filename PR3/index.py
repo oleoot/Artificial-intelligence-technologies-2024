@@ -1,32 +1,20 @@
-import telebot
-from telebot import types
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, InputFile
+import asyncio
 import random
 import sqlite3
-import requests
-from flask import Flask, request, jsonify
-# Token для привʼязки до телеграм бота
+import logging
+
+# Логування
+logging.basicConfig(level=logging.INFO)
+
+# Token для прив'язки до телеграм бота
 TOKEN = '7923883606:AAH9We_31SgEgKfavvbyJ9CgO6gYYt8u1a0'
-bot = telebot.TeleBot(TOKEN)
-
-# Monobank API токен
-MONO_API_TOKEN = 'u7E5hQz5rd8kIdVy3WOsDkzj6UyaHO0vkVlRhd1IwURs'
-WEBHOOK_URL = ''  # Змініть на вашу адресу
-
-app = Flask(__name__)
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.json
-    # Обробка отриманих даних
-    if data:
-        print(data)  # Друкуємо дані, щоб побачити, що надсилається
-    return jsonify({"status": "ok"}), 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)  # Слухаємо на порту 5000
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
 # Ініціалізація SQLite
-conn = sqlite3.connect('PR1/repair_orders.db', check_same_thread=False)
+conn = sqlite3.connect('PR3/repair_orders.db', check_same_thread=False)
 cursor = conn.cursor()
 
 # Створення таблиці для збереження даних, якщо такої ще немає
@@ -42,26 +30,9 @@ CREATE TABLE IF NOT EXISTS orders (
 ''')
 conn.commit()
 
-# Функція для створення платіжного посилання
-def create_monobank_payment(amount, currency, order_id, description):
-    url = "https://api.monobank.ua/api/merchant/invoice/create"
-    headers = {
-        "X-Token": MONO_API_TOKEN
-    }
-    data = {
-        "amount": amount,
-        "ccy": currency,
-        "reference": order_id,
-        "redirectUrl": "https://your-site/success",
-        "webHookUrl": WEBHOOK_URL,
-        "description": description
-    }
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code == 200:
-        return response.json().get("pageUrl")
-    else:
-        print(f"Помилка створення інвойсу: {response.text}")
-        return None
+# Контейнер для збереження контексту
+user_context = {}
+
 # Функція для додавання запису в базу даних
 def add_order(order_id, name, phone, phone_model, problem_description, status):
     cursor.execute('''
@@ -75,290 +46,193 @@ def get_order_status(order_id):
     cursor.execute('SELECT * FROM orders WHERE order_id = ?', (order_id,))
     return cursor.fetchone()
 
-# Обробник команди /start, яка викликає головне меню
-@bot.message_handler(commands=['start'])
-def start(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Категорії послуг", "Запис на ремонт", "Статус ремонту", "Про нас", "Контакти та розташування")
-    bot.send_photo(message.chat.id, photo=open('PR1/photos/1.jpg', 'rb'))
+# Обробник команди /start
+async def start(message: types.Message):
+    markup = ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="Категорії послуг"), types.KeyboardButton(text="Запис на ремонт")],
+            [types.KeyboardButton(text="Статус ремонту"), types.KeyboardButton(text="Про нас")],
+            [types.KeyboardButton(text="Контакти та розташування")]
+        ],
+        resize_keyboard=True
+    )
     welcome_text = (
         "Вітаємо вас у нашій майстерні з ремонту телефонів! 📱\n\n"
-        "Ми спеціалізуємося на швидкому та якісному ремонті телефонів різних брендів і моделей. "
-        "Наша команда складається з досвідчених майстрів, які використовують сучасні інструменти та високоякісні запчастини. "
-        "Ми розуміємо, наскільки важливий ваш пристрій, тому докладаємо всіх зусиль для швидкого і надійного відновлення його працездатності.\n\n"
-        "💼 Чому обирають нас?\n"
-        "- Безкоштовна діагностика для визначення точної причини поломки\n"
-        "- Гарантія на всі види ремонтних робіт\n"
-        "- Прозора вартість послуг без прихованих платежів\n"
-        "- Індивідуальний підхід до кожного клієнта\n\n"
-        "Для початку виберіть потрібний розділ з меню нижче, і ми допоможемо вам повернути ваш пристрій до життя! 😊"
+        "Ми спеціалізуємося на швидкому та якісному ремонті телефонів різних брендів і моделей."
+        "\n\n💼 Чому обирають нас?\n"
+        "- Безкоштовна діагностика\n"
+        "- Гарантія на всі види робіт\n"
+        "- Прозора вартість послуг\n"
+        "- Індивідуальний підхід\n"
+        "\nОберіть потрібний розділ з меню нижче. 😊"
     )
+    await message.answer(welcome_text, reply_markup=markup)
 
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-# Обробник команди для запису на ремонт
-@bot.message_handler(commands=['book'])
-def book(message):
-    request_user_info(message)
-# Обробник команди для перевірки статусу ремонту
-@bot.message_handler(commands=['status'])
-def status(message):
-    get_status(message)
-# Обробник команди для перегляду категорій послуг
-@bot.message_handler(commands=['categories'])
-def categories(message):
-    get_categories(message)
-# Обробник команди для інформації про майстерню
-@bot.message_handler(commands=['about'])
-def about(message):
-    get_about(message)
-# Обробник команди для контактної інформації
-@bot.message_handler(commands=['contacts'])
-def contacts(message):
-    get_contacts(message)
-# Обробник текстових повідомлень кнопок на головному екрані
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    if message.text == "Про нас":
-        get_about(message)
-    elif message.text == "Категорії послуг":
-        get_categories(message)
-
-    elif message.text == "Діагностика":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_diagnostics'))
-        bot.send_message(
-            message.chat.id,
-            "🔍 **Діагностика**\n\n"
-            "Діагностика дозволяє точно визначити причину несправності вашого телефону. "
-            "Наші фахівці швидко проведуть огляд пристрою та запропонують найкращий варіант вирішення проблеми.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
-    elif message.text == "Заміна екрана":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_screen_replacement'))
-        bot.send_message(
-            message.chat.id,
-            "📱 **Заміна екрана**\n\n"
-            "Ми пропонуємо заміну екранів для більшості моделей телефонів, використовуючи тільки якісні запчастини. "
-            "Процедура займає від 1 до 3 годин залежно від моделі.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
-    elif message.text == "Заміна батареї":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_battery_replacement'))
-        bot.send_message(
-            message.chat.id,
-            "🔋 **Заміна батареї**\n\n"
-            "Швидко розряджається телефон? Ми замінимо батарею на нову, щоб ваш пристрій працював довше. "
-            "Тривалість заміни - до 1 години.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
-    elif message.text == "Ремонт роз'єму зарядки":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_charging_port_repair'))
-        bot.send_message(
-            message.chat.id,
-            "🔌 **Ремонт роз'єму зарядки**\n\n"
-            "Ваш телефон не заряджається належним чином? Ми виправимо або замінимо роз'єм зарядки, "
-            "щоб ваш пристрій працював як новий.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
-    elif message.text == "Інша поломка":
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_other_issue'))
-        bot.send_message(
-            message.chat.id,
-            "📞 **Інша поломка**\n\n"
-            "Якщо у вас інша проблема з телефоном, надішліть нам опис, і ми допоможемо знайти найкраще рішення.",
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
+# Обробник текстових повідомлень
+async def handle_text(message: types.Message):
+    if message.text == "Категорії послуг":
+        await get_categories(message)
     elif message.text == "Запис на ремонт":
-        request_user_info(message)
-
-    elif message.text == "Контакти та розташування":
-        get_contacts(message)
-
+        await request_user_info(message)
     elif message.text == "Статус ремонту":
-        get_status(message)
-
+        await get_status(message)
+    elif message.text == "Про нас":
+        await get_about(message)
+    elif message.text == "Контакти та розташування":
+        await get_contacts(message)
     elif message.text == "Назад":
-        main_menu(message)
+        await main_menu(message)
 
-    elif message.text.isdigit():
-        # Обробка введення номера замовлення
-        order_info = get_order_status(message.text)
-        if order_info:
-            response = f"Статус вашого замовлення: {order_info[5]}"
-        else:
-            response = "Замовлення з таким номером не знайдено. Перевірте номер і спробуйте ще раз."
-
-        bot.send_message(message.chat.id, response)
-    else:
-        bot.send_message(message.chat.id, "Оберіть розділ з меню.")
 # Повернення до головного меню
-def main_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Категорії послуг", "Запис на ремонт", "Статус ремонту", "Про нас", "Контакти та розташування")
-    bot.send_message(
-        message.chat.id,
-        "Повертаємось до головного меню. Оберіть розділ для продовження:",
-        reply_markup=markup
+async def main_menu(message):
+    markup = ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="Категорії послуг"), types.KeyboardButton(text="Запис на ремонт")],
+            [types.KeyboardButton(text="Статус ремонту"), types.KeyboardButton(text="Про нас")],
+            [types.KeyboardButton(text="Контакти та розташування")]
+        ],
+        resize_keyboard=True
     )
-# Відображення інформації по вибраному типу ремонту
-@bot.callback_query_handler(func=lambda call: call.data in ['diagnostics', 'screen_replacement', 'battery_replacement', 'charging_port_repair', 'other_issue'])
-def category_info(call):
-    if call.data == 'diagnostics':
-        description = "🔍 **Діагностика**\n\nДіагностика дозволяє точно визначити причину несправності вашого телефону. Наші фахівці швидко проведуть огляд пристрою та запропонують найкращий варіант вирішення проблеми."
-    elif call.data == 'screen_replacement':
-        description = "📱 **Заміна екрана**\n\nМи пропонуємо заміну екранів для більшості моделей телефонів, використовуючи тільки якісні запчастини. Процедура займає від 1 до 3 годин залежно від моделі."
-    elif call.data == 'battery_replacement':
-        description = "🔋 **Заміна батареї**\n\nШвидко розряджається телефон? Ми замінимо батарею на нову, щоб ваш пристрій працював довше. Тривалість заміни - до 1 години."
-    elif call.data == 'charging_port_repair':
-        description = "🔌 **Ремонт роз'єму зарядки**\n\nВаш телефон не заряджається належним чином? Ми виправимо або замінимо роз'єм зарядки, щоб ваш пристрій працював як новий."
-    elif call.data == 'other_issue':
-        description = "📞 **Інша поломка**\n\nЯкщо у вас інша проблема з телефоном, надішліть нам опис, і ми допоможемо знайти найкраще рішення."
+    await message.answer("Повертаємось до головного меню:", reply_markup=markup)
 
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Записатися", callback_data='register_' + call.data))
-
-    bot.send_message(
-        call.message.chat.id,
-        description,
-        reply_markup=markup,
-        parse_mode="Markdown"
+# Категорії послуг
+async def get_categories(message):
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Діагностика", callback_data='diagnostics')],
+            [InlineKeyboardButton(text="Заміна екрана", callback_data='screen_replacement')],
+            [InlineKeyboardButton(text="Заміна батареї", callback_data='battery_replacement')],
+            [InlineKeyboardButton(text="Ремонт роз'єму зарядки", callback_data='charging_port_repair')],
+            [InlineKeyboardButton(text="Інша поломка", callback_data='other_issue')]
+        ]
     )
-# Обробка вибору категорії
-@bot.callback_query_handler(func=lambda call: call.data.startswith('register_'))
-def register(call):
-    request_user_info(call.message)
+    await message.answer("Оберіть категорію послуг:", reply_markup=markup)
+
+# Обробка натискання кнопок
+async def callback_handler(call: types.CallbackQuery):
+    if call.data in ['diagnostics', 'screen_replacement', 'battery_replacement', 'charging_port_repair', 'other_issue']:
+        await category_info(call)
+    elif call.data.startswith('register_'):
+        await request_user_info(call.message, call.data)
+
+# Інформація по вибраній категорії
+async def category_info(call):
+    descriptions = {
+        'diagnostics': "🔍 **Діагностика**\n\nДозволяє точно визначити причину несправності.",
+        'screen_replacement': "📱 **Заміна екрана**\n\nТривалість: 1-3 години.",
+        'battery_replacement': "🔋 **Заміна батареї**\n\nТривалість: до 1 години.",
+        'charging_port_repair': "🔌 **Ремонт роз'єму зарядки**\n\nВідновлення працездатності пристрою.",
+        'other_issue': "📞 **Інша поломка**\n\nОпишіть проблему."
+    }
+    description = descriptions.get(call.data, "Категорія не знайдена")
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Записатися", callback_data=f'register_{call.data}')]]
+    )
+    await call.message.answer(description, parse_mode="Markdown", reply_markup=markup)
+
 # Запит даних користувача для запису
-def request_user_info(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Назад")
-    bot.send_message(
-        message.chat.id,
-        "Будь ласка, надішліть наступну інформацію для запису:\n- Ваше ім'я\n- Номер телефону\n- Модель телефону\n- Опис проблеми",
+async def request_user_info(message, category=None):
+    user_context[message.chat.id] = {"action": "register"}
+    if category:
+        user_context[message.chat.id]["category"] = category.replace('register_', '').replace('_', ' ').capitalize()
+    markup = ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text="Назад")]],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "Будь ласка, надішліть наступну інформацію у форматі:\nВаше ім'я, Номер телефону, Модель телефону",
         reply_markup=markup
     )
-    bot.register_next_step_handler(message, process_order)
-# Перевірка статусу замовлення
-def get_status(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Назад")
-    bot.send_message(
-        message.chat.id,
-        "Введіть номер вашого замовлення для перевірки статусу ремонту:",
-        reply_markup=markup
-    )
+# Обробка текстових повідомлень
+async def process_message(message: types.Message):
+    context = user_context.get(message.chat.id, {})
+    action = context.get("action")
+
+    if action == "register":
+        await process_user_info(message)
+    elif action == "check_status":
+        await process_order_status(message)
+    else:
+        await message.answer("Будь ласка, оберіть дію з меню.")
+
+# Обробка введення даних користувача
+async def process_user_info(message: types.Message):
+    try:
+        user_data = message.text.split(",")
+        name = user_data[0].strip()
+        phone = user_data[1].strip()
+        phone_model = user_data[2].strip()
+        context = user_context.get(message.chat.id, {})
+        problem_description = context.get("category", "")
+        order_id = str(random.randint(10000, 99999))
+        status = "Замовлення підтверджено."
+
+        add_order(order_id, name, phone, phone_model, problem_description, status)
+        await message.answer(f"Дякуємо! Ваше замовлення підтверджено. Номер замовлення: {order_id}")
+        await main_menu(message)
+    except Exception as e:
+        await message.answer("Будь ласка, введіть коректні дані у форматі: Ім'я, Телефон, Модель")
+
+# Статус замовлення
+async def get_status(message):
+    user_context[message.chat.id] = {"action": "check_status"}
+    await message.answer("Введіть номер вашого замовлення:")
+
+# Обробка введення номера замовлення
+async def process_order_status(message: types.Message):
+    order_id = message.text.strip()
+    order_info = get_order_status(order_id)
+    if order_info:
+        response = (
+            f"Номер замовлення: {order_info[0]}\n"
+            f"Ім'я: {order_info[1]}\n"
+            f"Телефон: {order_info[2]}\n"
+            f"Модель телефону: {order_info[3]}\n"
+            f"Опис проблеми: {order_info[4]}\n"
+            f"Статус: {order_info[5]}"
+        )
+    else:
+        response = "Замовлення з таким номером не знайдено. Перевірте номер і спробуйте ще раз."
+    await message.answer(response)
+    await main_menu(message)
+
 # Інформація про майстерню
-def get_about(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Назад")
-    bot.send_photo(message.chat.id, photo=open('PR1/photos/2.png', 'rb'))
-    bot.send_message(
-        message.chat.id,
+async def get_about(message):
+    markup = ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text="Назад")]],
+        resize_keyboard=True
+    )
+    await message.answer(
         "Ми - професійна майстерня з ремонту телефонів з багаторічним досвідом роботи. "
         "Пропонуємо швидкий та якісний ремонт різних моделей телефонів. "
         "Наша мета - зробити ваш пристрій знову як новий!",
         reply_markup=markup
     )
-# Контактна інформація
-def get_contacts(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Назад")
-    bot.send_message(
-        message.chat.id,
-        "Наша майстерня знаходиться за адресою: проспект Степана Бандери, 4, Київ.\n"
-        "Графік роботи: Пн-Пт з 9:00 до 18:00.\nТелефон для довідок: +380123456789",
+
+# Інформація про контакти
+async def get_contacts(message):
+    markup = ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text="Назад")]],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "Адреса: проспект Степана Бандери, 4, Київ.\n"
+        "Графік роботи: Пн-Пт з 9:00 до 18:00.\n"
+        "Телефон для довідок: +380123456789",
         reply_markup=markup
     )
-# Всі категорії ремонту
-def get_categories(message):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Діагностика", callback_data='diagnostics'))
-    markup.add(types.InlineKeyboardButton("Заміна екрана", callback_data='screen_replacement'))
-    markup.add(types.InlineKeyboardButton("Заміна батареї", callback_data='battery_replacement'))
-    markup.add(types.InlineKeyboardButton("Ремонт роз'єму зарядки", callback_data='charging_port_repair'))
-    markup.add(types.InlineKeyboardButton("Інша поломка", callback_data='other_issue'))
 
-    back_markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    back_markup.add("Назад")
 
-    bot.send_message(
-        message.chat.id,
-        "Оберіть категорію послуг для перегляду інформації та запису:",
-        reply_markup=markup
-    )
-    bot.send_message(
-        message.chat.id,
-        "Для повернення натисніть кнопку 'Назад'",
-        reply_markup=back_markup
-    )
+# Реєстрація хендлерів
+dp.message.register(start, F.text == "/start")
+dp.message.register(handle_text, F.text.in_(["Категорії послуг", "Запис на ремонт", "Статус ремонту", "Про нас", "Контакти та розташування", "Назад"]))
+# Реєстрація обробника текстових повідомлень
+dp.message.register(process_message)
+dp.callback_query.register(callback_handler)
 
-# Обробка замовлення
-def process_order(message):
-    if message.text == "Назад":
-        main_menu(message)
-        return
-    user_data = message.text.split('\n')
-    if len(user_data) < 4:
-        bot.send_message(
-            message.chat.id,
-            "Недостатньо даних. Переконайтесь, що ви надали ім'я, номер телефону, модель телефону та опис проблеми."
-        )
-        return request_user_info(message)
+# Активація бота
+async def main():
+    await dp.start_polling(bot)
 
-    name = user_data[0]
-    phone = user_data[1]
-    phone_model = user_data[2]
-    problem_description = user_data[3]
-    order_id = str(random.randint(10000, 99999))
-    amount = 100  # Сума в копійках (100.00 UAH)
-    currency = 980  # Код валюти для гривні
-    description = f"Оплата за ремонт {phone_model}"
-    payment_url = create_monobank_payment(amount, currency, order_id, description)
-
-    if payment_url:
-        bot.send_message(
-            message.chat.id,
-            f"Ваш номер замовлення: {order_id}. Для підтвердження запису оплатіть послугу за посиланням: {payment_url}"
-        )
-        add_order(order_id, name, phone, phone_model, problem_description, "Очікує оплату")
-    else:
-        bot.send_message(message.chat.id, "Помилка при створенні посилання для оплати.")
-# Обробка замовлення
-# def process_order(message):
-#     if message.text == "Назад":
-#         main_menu(message)
-#         return
-#     user_data = message.text.split('\n')
-#     if len(user_data) < 4:
-#         bot.send_message(
-#             message.chat.id,
-#             "Недостатньо даних. Переконайтесь, що ви надали ім'я, номер телефону, модель телефону та опис проблеми."
-#         )
-#         return request_user_info(message)
-
-#     name = user_data[0]
-#     phone = user_data[1]
-#     phone_model = user_data[2]
-#     problem_description = user_data[3]
-#     status = "Замовлення прийнято на обробку. Очікуйте подальших оновлень."
-#     order_id = str(random.randint(10000, 99999))
-#     add_order(order_id, name, phone, phone_model, problem_description, status)
-#     bot.send_message(
-#         message.chat.id,
-#         f"Дякуємо за запис! Ваш номер замовлення: {order_id}. Ви можете перевірити статус у розділі 'Статус ремонту'."
-#     )
-# Активація боту
-bot.polling(none_stop=True)
+if __name__ == "__main__":
+    asyncio.run(main())

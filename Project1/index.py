@@ -6,7 +6,7 @@ API_TOKEN = '7566867318:AAF0bWemq3rnXxw0LbUua1XN5dvWS2h2I_U'
 bot = telebot.TeleBot(API_TOKEN)
 
 # Ініціалізуємо базу даних SQLITE
-conn = sqlite3.connect('Project1/store.db', check_same_thread=False)
+conn = sqlite3.connect('store.db', check_same_thread=False)
 cursor = conn.cursor()
 
 # Створення таблиці замовлень, якщо вона не існує
